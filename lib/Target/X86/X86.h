@@ -94,6 +94,10 @@ FunctionPass *createX86EvexToVexInsts();
 
 void initializeEvexToVexInstPassPass(PassRegistry &);
 
+// hailong:
+// Return a pass that removes pop gadgets.
+FunctionPass *createX86RemovePopGadgets();
+
 } // End llvm namespace
 
 #endif

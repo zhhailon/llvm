@@ -56,6 +56,8 @@ set(sources
   X86WinAllocaExpander.cpp
   X86WinEHState.cpp
   X86CallingConv.cpp
+# hailong:
+  X86RemovePopGadgets.cpp
   ${GLOBAL_ISEL_BUILD_FILES}
   )
 
