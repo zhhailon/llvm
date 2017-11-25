@@ -14,6 +14,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetInstrInfo.h"
+#include <cassert>
 
 using namespace llvm;
 
@@ -22,7 +23,7 @@ using namespace llvm;
 
 #define DEBUG_TYPE REMOVE_POP_GADGETS_NAME
 
-STATISTIC(NumPopGadgets, "Number of pop gadgets");
+STATISTIC(NumPops, "Number of POPs");
 
 namespace {
   class RemovePopGadgetsPass : public MachineFunctionPass {
@@ -49,6 +50,9 @@ namespace {
 
   private:
     bool isPopOp(MachineInstr &MI);
+    bool isPushOp(MachineInstr &MI);
+    bool isPopOperandRAX(MachineInstr &MI);
+    bool isPushOperandRAX(MachineInstr &MI);
 
     const X86Subtarget *STI;
     const TargetInstrInfo *TII;
@@ -88,16 +92,60 @@ void RemovePopGadgetsPass::processBasicBlock(MachineFunction &MF,
   for (auto I = MBB.begin(); I != MBB.end(); ++I) {
     MachineInstr *MI = &*I;
     if (isPopOp(*MI)) {
-      MI->dump();
+      dbgs() << "opcode: " << MI->getOpcode() << " " << *MI << "\n";
+      isPopOperandRAX(*MI);
+    } else if (isPushOp(*MI)) {
+      dbgs() << "opcode: " << MI->getOpcode() << " " << *MI << "\n";
+      isPushOperandRAX(*MI);
     }
   }
 }
 
-bool RemovePopGadgetsPass::isPopOp(MachineInstr &MI) {
+bool RemovePopGadgetsPass::isPopOperandRAX(MachineInstr &MI) {
+  assert(isPopOp(MI) && "Not POP instruction");
+  const MachineOperand operand = MI.getOperand(0);
+  return operand.isReg() && operand.getReg() == X86::RAX;
+}
+
+bool RemovePopGadgetsPass::isPushOperandRAX(MachineInstr &MI) {
+  assert(isPushOp(MI) && "Not PUSH instruction");
+  const MachineOperand operand = MI.getOperand(0);
+  return operand.isReg() && operand.getReg() == X86::RAX;
+}
+
+bool RemovePopGadgetsPass::isPushOp(MachineInstr &MI) {
   switch (MI.getOpcode()) {
-    case X86::POP64r:
+    case X86::PUSH16i8:
+    case X86::PUSH16r:
+    case X86::PUSH16rmm:
+    case X86::PUSH16rmr:
+    case X86::PUSH32i8:
+    case X86::PUSH32r:
+    case X86::PUSH32rmm:
+    case X86::PUSH32rmr:
+    case X86::PUSH64i32:
+    case X86::PUSH64i8:
+    case X86::PUSH64r:
+    case X86::PUSH64rmm:
+    case X86::PUSH64rmr:
     return true;
   }
-  dbgs() << "opcode: " << MI.getOpcode() << " " << MI << "\n";
+  return false;
+}
+
+bool RemovePopGadgetsPass::isPopOp(MachineInstr &MI) {
+  switch (MI.getOpcode()) {
+    case X86::POP16r:
+    case X86::POP16rmm:
+    case X86::POP16rmr:
+    case X86::POP32r:
+    case X86::POP32rmm:
+    case X86::POP32rmr:
+    case X86::POP64r:
+    case X86::POP64rmm:
+    case X86::POP64rmr:
+    ++NumPops;
+    return true;
+  }
   return false;
 }
