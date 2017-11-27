@@ -47,6 +47,7 @@ extern "C" void LLVMInitializeX86Target() {
   initializeWinEHStatePassPass(PR);
   initializeFixupBWInstPassPass(PR);
   initializeEvexToVexInstPassPass(PR);
+  initializeRemovePopGadgetsPassPass(PR);
 }
 
 static std::unique_ptr<TargetLoweringObjectFile> createTLOF(const Triple &TT) {

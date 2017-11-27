@@ -97,6 +97,7 @@ void initializeEvexToVexInstPassPass(PassRegistry &);
 // hailong:
 // Return a pass that removes pop gadgets.
 FunctionPass *createX86RemovePopGadgets();
+void initializeRemovePopGadgetsPassPass(PassRegistry &);
 
 } // End llvm namespace
 

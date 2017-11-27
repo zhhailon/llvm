@@ -27,9 +27,6 @@ STATISTIC(NumPops, "Number of POPs");
 
 namespace {
   class RemovePopGadgetsPass : public MachineFunctionPass {
-    // Look over all of the instructions in a basic block.
-    void processBasicBlock(MachineFunction &MF, MachineBasicBlock &MBB);
-
   public:
     static char ID;
 
@@ -39,20 +36,25 @@ namespace {
 
     bool runOnMachineFunction(MachineFunction &MF) override;
 
-    MachineFunctionProperties getRequiredProperties() const override {
-      return MachineFunctionProperties().set(
-          MachineFunctionProperties::Property::NoVRegs);
-    }
+    // MachineFunctionProperties getRequiredProperties() const override {
+    //   return MachineFunctionProperties().set(
+    //       MachineFunctionProperties::Property::NoVRegs);
+    // }
 
     StringRef getPassName() const override {
       return REMOVE_POP_GADGETS_DESC;
     }
 
   private:
+    // Look over all of the instructions in a basic block.
+    void processBasicBlock(MachineFunction &MF, MachineBasicBlock &MBB);
+
     bool isPopOp(MachineInstr &MI);
     bool isPushOp(MachineInstr &MI);
     bool isPopOperandRAX(MachineInstr &MI);
     bool isPushOperandRAX(MachineInstr &MI);
+    bool isPopOperandRBX(MachineInstr &MI);
+    bool isPushOperandRBX(MachineInstr &MI);
 
     const X86Subtarget *STI;
     const TargetInstrInfo *TII;
@@ -61,7 +63,7 @@ namespace {
   char RemovePopGadgetsPass::ID = 0;
 }
 
-// INITIALIZE_PASS(RemovePopGadgetsPass, REMOVE_POP_GADGETS_NAME, REMOVE_POP_GADGETS_DESC, false, false)
+INITIALIZE_PASS(RemovePopGadgetsPass, REMOVE_POP_GADGETS_NAME, REMOVE_POP_GADGETS_DESC, false, true)
 
 FunctionPass *llvm::createX86RemovePopGadgets() {
   return new RemovePopGadgetsPass();
@@ -79,8 +81,10 @@ bool RemovePopGadgetsPass::runOnMachineFunction(MachineFunction &MF) {
   dbgs() << "Start X86RemovePopGadgets\n";
 
   // Process all basic blocks.
-  for (auto &MBB : MF)
+  for (auto &MBB : MF) {
+    MBB.dump();
     processBasicBlock(MF, MBB);
+  }
 
   dbgs() << "End X86RemovePopGadgets\n";
 
@@ -111,6 +115,18 @@ bool RemovePopGadgetsPass::isPushOperandRAX(MachineInstr &MI) {
   assert(isPushOp(MI) && "Not PUSH instruction");
   const MachineOperand operand = MI.getOperand(0);
   return operand.isReg() && operand.getReg() == X86::RAX;
+}
+
+bool RemovePopGadgetsPass::isPopOperandRBX(MachineInstr &MI) {
+  assert(isPopOp(MI) && "Not POP instruction");
+  const MachineOperand operand = MI.getOperand(0);
+  return operand.isReg() && operand.getReg() == X86::RBX;
+}
+
+bool RemovePopGadgetsPass::isPushOperandRBX(MachineInstr &MI) {
+  assert(isPushOp(MI) && "Not PUSH instruction");
+  const MachineOperand operand = MI.getOperand(0);
+  return operand.isReg() && operand.getReg() == X86::RBX;
 }
 
 bool RemovePopGadgetsPass::isPushOp(MachineInstr &MI) {
