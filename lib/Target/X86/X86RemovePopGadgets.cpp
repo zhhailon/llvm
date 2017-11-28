@@ -82,7 +82,6 @@ bool RemovePopGadgetsPass::runOnMachineFunction(MachineFunction &MF) {
 
   // Process all basic blocks.
   for (auto &MBB : MF) {
-    MBB.dump();
     processBasicBlock(MF, MBB);
   }
 
@@ -95,14 +94,19 @@ void RemovePopGadgetsPass::processBasicBlock(MachineFunction &MF,
                                         MachineBasicBlock &MBB) {
   for (auto I = MBB.begin(); I != MBB.end(); ++I) {
     MachineInstr *MI = &*I;
+
     if (isPopOp(*MI)) {
       dbgs() << "opcode: " << MI->getOpcode() << " " << *MI << "\n";
-      isPopOperandRAX(*MI);
+      // llvm/lib/Target/X86/X86ISelLowering.cpp#25270
+      BuildMI(MBB, MI, MI->getDebugLoc(), TII->get(X86::CALL64pcrel32))
+        .addExternalSymbol("heap_stack_pop");
     } else if (isPushOp(*MI)) {
       dbgs() << "opcode: " << MI->getOpcode() << " " << *MI << "\n";
-      isPushOperandRAX(*MI);
+      BuildMI(MBB, MI, MI->getDebugLoc(), TII->get(X86::CALL64pcrel32))
+        .addExternalSymbol("heap_stack_push");
     }
   }
+  MBB.dump();
 }
 
 bool RemovePopGadgetsPass::isPopOperandRAX(MachineInstr &MI) {
