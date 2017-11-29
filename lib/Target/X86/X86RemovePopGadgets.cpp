@@ -24,6 +24,7 @@ using namespace llvm;
 #define DEBUG_TYPE REMOVE_POP_GADGETS_NAME
 
 STATISTIC(NumPops, "Number of POPs");
+STATISTIC(NumPush, "Number of PUSHes");
 
 namespace {
   class RemovePopGadgetsPass : public MachineFunctionPass {
@@ -51,10 +52,8 @@ namespace {
 
     bool isPopOp(MachineInstr &MI);
     bool isPushOp(MachineInstr &MI);
-    bool isPopOperandRAX(MachineInstr &MI);
-    bool isPushOperandRAX(MachineInstr &MI);
-    bool isPopOperandRBX(MachineInstr &MI);
-    bool isPushOperandRBX(MachineInstr &MI);
+    bool isOperandRAX(MachineInstr &MI);
+    bool isOperandRBX(MachineInstr &MI);
 
     const X86Subtarget *STI;
     const TargetInstrInfo *TII;
@@ -80,11 +79,15 @@ bool RemovePopGadgetsPass::runOnMachineFunction(MachineFunction &MF) {
 
   dbgs() << "Start X86RemovePopGadgets\n";
 
+  NumPops = 0;
+  NumPush = 0;
   // Process all basic blocks.
   for (auto &MBB : MF) {
     processBasicBlock(MF, MBB);
   }
 
+  MF.dump();
+  dbgs() << "POP: " << NumPops << ", PUSH: " << NumPush << "\n";
   dbgs() << "End X86RemovePopGadgets\n";
 
   return true;
@@ -95,40 +98,66 @@ void RemovePopGadgetsPass::processBasicBlock(MachineFunction &MF,
   for (auto I = MBB.begin(); I != MBB.end(); ++I) {
     MachineInstr *MI = &*I;
 
+    if (MI->getOpcode() == TargetOpcode::INLINEASM) {
+      dbgs() << "--------inline assembly\n";
+    }
+
     if (isPopOp(*MI)) {
-      dbgs() << "opcode: " << MI->getOpcode() << " " << *MI << "\n";
+      ++NumPops;
       // llvm/lib/Target/X86/X86ISelLowering.cpp#25270
-      BuildMI(MBB, MI, MI->getDebugLoc(), TII->get(X86::CALL64pcrel32))
-        .addExternalSymbol("heap_stack_pop");
+      // BuildMI(MBB, MI, MI->getDebugLoc(), TII->get(X86::CALL64pcrel32))
+      //   .addExternalSymbol("heap_stack_pop");
+
+      MachineInstr *NewMI = MF.CreateMachineInstr(TII->get(X86::POP64r), MI->getDebugLoc());
+      MBB.insertAfter(I, NewMI);
+      MachineInstrBuilder(MF, NewMI).addReg(X86::RDI, RegState::Define);
+
+      NewMI = MF.CreateMachineInstr(TII->get(X86::CALL64pcrel32), MI->getDebugLoc());
+      MBB.insertAfter(I, NewMI);
+      MachineInstrBuilder(MF, NewMI).addExternalSymbol("heap_stack_pop");
+
+      NewMI = MF.CreateMachineInstr(TII->get(X86::MOV64ri), MI->getDebugLoc());
+      MBB.insertAfter(I, NewMI);
+      MachineInstrBuilder(MF, NewMI).addReg(X86::RDI)
+        .addImm(isOperandRAX(*MI) ? 1 : (isOperandRBX(*MI) ? 2 : 0));
+
+      NewMI = MF.CreateMachineInstr(TII->get(X86::PUSH64r), MI->getDebugLoc());
+      MBB.insertAfter(I, NewMI);
+      MachineInstrBuilder(MF, NewMI).addUse(X86::RDI);
+
+      ++I; ++I; ++I; ++I;
     } else if (isPushOp(*MI)) {
-      dbgs() << "opcode: " << MI->getOpcode() << " " << *MI << "\n";
-      BuildMI(MBB, MI, MI->getDebugLoc(), TII->get(X86::CALL64pcrel32))
-        .addExternalSymbol("heap_stack_push");
+      ++NumPush;
+
+      MachineInstr *NewMI = MF.CreateMachineInstr(TII->get(X86::POP64r), MI->getDebugLoc());
+      MBB.insertAfter(I, NewMI);
+      MachineInstrBuilder(MF, NewMI).addReg(X86::RDI, RegState::Define);
+
+      NewMI = MF.CreateMachineInstr(TII->get(X86::CALL64pcrel32), MI->getDebugLoc());
+      MBB.insertAfter(I, NewMI);
+      MachineInstrBuilder(MF, NewMI).addExternalSymbol("heap_stack_push");
+
+      NewMI = MF.CreateMachineInstr(TII->get(X86::MOV64rr), MI->getDebugLoc());
+      MBB.insertAfter(I, NewMI);
+      const MachineOperand operand = MI->getOperand(0);
+      MachineInstrBuilder(MF, NewMI).addReg(X86::RDI).addReg(operand.getReg());
+        // .addImm(isOperandRAX(*MI) ? 1 : (isOperandRBX(*MI) ? 2 : 0));
+
+      NewMI = MF.CreateMachineInstr(TII->get(X86::PUSH64r), MI->getDebugLoc());
+      MBB.insertAfter(I, NewMI);
+      MachineInstrBuilder(MF, NewMI).addUse(X86::RDI);
+
+      ++I; ++I; ++I; ++I;
     }
   }
-  MBB.dump();
 }
 
-bool RemovePopGadgetsPass::isPopOperandRAX(MachineInstr &MI) {
-  assert(isPopOp(MI) && "Not POP instruction");
+bool RemovePopGadgetsPass::isOperandRAX(MachineInstr &MI) {
   const MachineOperand operand = MI.getOperand(0);
   return operand.isReg() && operand.getReg() == X86::RAX;
 }
 
-bool RemovePopGadgetsPass::isPushOperandRAX(MachineInstr &MI) {
-  assert(isPushOp(MI) && "Not PUSH instruction");
-  const MachineOperand operand = MI.getOperand(0);
-  return operand.isReg() && operand.getReg() == X86::RAX;
-}
-
-bool RemovePopGadgetsPass::isPopOperandRBX(MachineInstr &MI) {
-  assert(isPopOp(MI) && "Not POP instruction");
-  const MachineOperand operand = MI.getOperand(0);
-  return operand.isReg() && operand.getReg() == X86::RBX;
-}
-
-bool RemovePopGadgetsPass::isPushOperandRBX(MachineInstr &MI) {
-  assert(isPushOp(MI) && "Not PUSH instruction");
+bool RemovePopGadgetsPass::isOperandRBX(MachineInstr &MI) {
   const MachineOperand operand = MI.getOperand(0);
   return operand.isReg() && operand.getReg() == X86::RBX;
 }
@@ -164,7 +193,6 @@ bool RemovePopGadgetsPass::isPopOp(MachineInstr &MI) {
     case X86::POP64r:
     case X86::POP64rmm:
     case X86::POP64rmr:
-    ++NumPops;
     return true;
   }
   return false;
